@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="referrer" content="strict-origin-when-cross-origin" />
-<title>VanMap Portal OAuth + Browser Network Diagnostics v3</title>
+<title>VanMap Portal OAuth + Browser Token Bridge Diagnostics v4</title>
 <link rel="stylesheet" href="https://js.arcgis.com/4.34/esri/themes/light/main.css" />
 <style>
 :root { font-family: system-ui, -apple-system, Segoe UI, Arial, sans-serif; color:#172633; background:#edf0f2; }
@@ -36,7 +36,7 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
 <script src="https://js.arcgis.com/4.34/"></script>
 </head>
 <body>
-<header><strong>VanMap Portal · Layer Access Test</strong><small>GitHub Pages · SSO + browser network diagnostics v3 · no access tokens in source</small></header>
+<header><strong>VanMap Portal · Layer Access Test</strong><small>GitHub Pages · SSO + browser token bridge diagnostics v4 · no access tokens in source</small></header>
 <main>
 <aside>
  <h2>Sites over 5 acres</h2>
@@ -47,17 +47,19 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
  <div id="meta"></div>
  <hr />
  <h2>Portal sign-in</h2>
- <p>Use your City single sign-on. The Client ID is public application configuration, not a password. This test uses a full-page OAuth redirect and then checks that your user can access the feature layer.</p>
+ <p>Use your City single sign-on. The Client ID is public application configuration, not a password. This test uses a full-page OAuth redirect and then tests the Portal token on the hosting service and requests a server-scoped token if needed.</p>
  <div class="field"><label for="portalUrl">Your ArcGIS Enterprise Portal URL</label><input id="portalUrl" type="url" value="https://geo.vancouver.ca/portal/" spellcheck="false" autocomplete="off" /></div>
  <div class="field"><label for="clientId">OAuth Client ID (not client secret)</label><input id="clientId" value="clgZdX7HR1BywYdB" spellcheck="false" autocomplete="off" /></div>
- <div class="buttons"><button id="loginBtn" type="button">1 · Sign in with City Portal</button><button id="secureBtn" class="secondary" type="button">2 · Load secured layer</button></div>
+ <div class="buttons"><button id="loginBtn" type="button">1 · Sign in with City Portal</button><button id="bridgeBtn" type="button">2 · Test OAuth → hosting token</button><button id="secureBtn" class="secondary" type="button">3 · Load layer with ArcGIS SDK</button></div>
  <div id="loginStatus" class="status" data-kind="info" aria-live="polite">Portal session: not yet verified.</div>
- <small class="note">Registered redirect should include <code>https://bhudson1.github.io/PortalWebPageTest/</code> with the trailing slash. If you visit an <code>index.html</code> URL, register that exact URL as well. The sign-in may reload the page; then click <b>Load secured layer</b>.</small>
+ <small class="note">The OAuth test sends the signed-in token only to the configured City ArcGIS endpoints, using HTTPS POST form bodies (not URL parameters). No token values are printed, stored or committed.</small>
+ <div id="bridgeStatus" class="status" role="status" aria-live="polite">OAuth-to-hosting test not yet run.</div>
+ <small class="note">Registered redirect should include <code>https://bhudson1.github.io/PortalWebPageTest/</code> with the trailing slash. If you visit an <code>index.html</code> URL, register that exact URL as well. The sign-in may reload the page; then click <b>Test OAuth → hosting token</b>.</small>
  <small class="note">This OAuth flow requires a valid Portal URL, a registered public-client application and a matching redirect URI. The service host and Portal host may be different.</small>
  <hr />
  <h2>Browser connection tests</h2>
  <p>These tests use the browser's native network requests <strong>without tokens or cookies</strong>. They distinguish readable REST errors from requests the browser cannot read. They do not change Portal permissions.</p>
- <div class="buttons"><button id="diagnoseBtn" type="button">3 · Diagnose browser access</button></div>
+ <div class="buttons"><button id="diagnoseBtn" type="button">4 · Diagnose browser access</button></div>
  <div id="networkStatus" class="status">Not tested. Use this if Portal SSO succeeds but both Portal REST and Hosting REST fail to fetch.</div>
  <div class="buttons">
   <a class="diaglink" href="https://geo.vancouver.ca/portal/sharing/rest/portals/self?f=pjson" target="_blank" rel="noopener noreferrer">Open Portal REST directly</a>
@@ -72,7 +74,7 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
  <hr />
  <h2>Connection diagnostics</h2>
  <pre id="events" aria-live="polite">Waiting for test.</pre>
- <small class="note">If login succeeds but the layer fails, the diagnostics should identify whether Portal credentials, hosting service authorization, cross-origin access, or drawing is failing. No tokens are printed in this log.</small>
+ <small class="note">If login succeeds but the layer fails, the diagnostics distinguish Portal credentials, hosting-server token exchange, cross-origin access and drawing. No tokens are printed in this log.</small>
 </aside>
 <div id="viewDiv" aria-label="Map showing Sites over 5 acres"></div>
 </main>
@@ -82,7 +84,7 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
  const SERVICE='https://geo.vancouver.ca/hosting/rest/services/Hosted/Sites_over_5_acres/FeatureServer/0';
  const DEFAULT_PORTAL='https://geo.vancouver.ca/portal';
  const $=id=>document.getElementById(id);
- const els={status:$('status'),events:$('events'),load:$('loadBtn'),secure:$('secureBtn'),reset:$('resetBtn'),login:$('loginBtn'),token:$('tokenBtn'),diagnose:$('diagnoseBtn'),networkStatus:$('networkStatus'),meta:$('meta'),loginStatus:$('loginStatus')};
+ const els={status:$('status'),events:$('events'),load:$('loadBtn'),secure:$('secureBtn'),reset:$('resetBtn'),login:$('loginBtn'),token:$('tokenBtn'),diagnose:$('diagnoseBtn'),bridge:$('bridgeBtn'),bridgeStatus:$('bridgeStatus'),networkStatus:$('networkStatus'),meta:$('meta'),loginStatus:$('loginStatus')};
  let Map, MapView, FeatureLayer, OAuthInfo, identityManager, esriConfig, esriRequest;
  let map, view, liveLayer, busy=false, oauthRegistered=false, portalSignedIn=false, currentPortal='';
  function safe(v){
@@ -101,7 +103,7 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
   const msg=parts.filter(Boolean).join(' — ') || String(e);
   return safe(msg);
  }
- function setBusy(v){busy=v;for(const el of [els.load,els.secure,els.login,els.token])el.disabled=v;}
+ function setBusy(v){busy=v;for(const el of [els.load,els.secure,els.login,els.token,els.bridge])el.disabled=v;}
  function service(){const u=new URL($('layerUrl').value.trim());if(u.protocol!=='https:')throw Error('FeatureServer URL must be HTTPS');if(!/\/FeatureServer\/\d+\/?$/i.test(u.pathname))throw Error('Feature layer URL should end in /FeatureServer/0');return u.origin+u.pathname.replace(/\/$/,'');}
  function portal(){const u=new URL($('portalUrl').value.trim());if(u.protocol!=='https:')throw Error('Portal URL must be HTTPS');return (u.origin+u.pathname).replace(/\/$/,'');}
  function registerOAuth(){
@@ -109,7 +111,7 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
   const p=portal(),id=$('clientId').value.trim();if(!id)throw Error('Client ID is required.');
   if(oauthRegistered && currentPortal===p)return p;
   esriConfig.portalUrl=p;
-  identityManager.registerOAuthInfos([new OAuthInfo({appId:id,portalUrl:p,popup:false,flowType:'auto',authNamespace:'vanmap-gh-pages-oauth-test-v2'})]);
+  identityManager.registerOAuthInfos([new OAuthInfo({appId:id,portalUrl:p,popup:false,flowType:'auto',authNamespace:'vanmap-gh-pages-oauth-test-v4'})]);
   currentPortal=p; oauthRegistered=true;
   log('OAuth settings registered for '+p+' (Client ID present; no tokens included).');
   return p;
@@ -134,8 +136,7 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
    log('Signing in. If your browser navigates to City SSO, complete the login and return to this site.');
    await identityManager.getCredential(p+'/sharing');
    await verifyPortal();
-   setBusy(false);
-   await loadLayer('signed-in');
+   log('City Portal sign-in completed. Next use 2 · Test OAuth → hosting token.');
   }catch(e){loginState('Portal sign-in failed: '+errText(e),'error');status('Portal OAuth sign-in did not complete. Verify the registered redirect URL and Portal access.','error');}
   finally{setBusy(false);}
  }
@@ -163,7 +164,7 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
    candidate.popupTemplate=candidate.createPopupTemplate?.()||{title:'Site',content:'ArcGIS feature'};
    if(liveLayer)map.remove(liveLayer);liveLayer=candidate;map.add(liveLayer);
    const extent=candidate.fullExtent;
-   if(extent && !extent.isEmpty){try{await view.goTo(extent.expand(1.12),{duration:550});log('Map moved to layer extent.');}catch(e){log('Zoom failed: '+errText(e));}}
+   if(extent && !extent.isEmpty){try{await view.when();await view.goTo(extent.expand(1.12),{duration:550});log('Map moved to layer extent.');}catch(e){log('Zoom failed: '+errText(e));}}
    let count='Not available';
    try{count=await candidate.queryFeatureCount();log('Layer query succeeded. Count: '+count);}
    catch(e){log('Feature count query failed: '+errText(e));}
@@ -221,6 +222,82 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
   }catch(e){els.networkStatus.dataset.kind='error';els.networkStatus.textContent='Browser diagnostic failed: '+errText(e);log('Browser diagnostic failure: '+errText(e));}
   finally{els.diagnose.disabled=false;}
  }
+ // This is a narrowly scoped diagnostic. Never send user tokens to arbitrary user-entered URLs.
+ function allowedCityEndpoints(){
+  const p=portal(), u=service();
+  const ph=new URL(p), su=new URL(u);
+  if(ph.hostname!=='geo.vancouver.ca'||ph.pathname!=='/portal')throw Error('OAuth diagnostic is restricted to the City Portal host.');
+  if(su.hostname!=='geo.vancouver.ca'||!su.pathname.startsWith('/hosting/rest/services/Hosted/'))throw Error('OAuth diagnostic is restricted to the City hosted service.');
+  return {p,u,serverBase:su.origin+'/hosting'};
+ }
+ function bridgeState(message,kind='info'){
+  els.bridgeStatus.textContent=message;
+  els.bridgeStatus.dataset.kind=kind;
+  log(message);
+ }
+ // POST form values are never included in URLs, diagnostics, or saved application files.
+ async function arcgisPost(label,url,fields){
+  log(label+': HTTPS form POST (credentials not logged)…');
+  let response;
+  try{
+   response=await fetch(url,{method:'POST',mode:'cors',credentials:'omit',redirect:'follow',
+    headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+    body:new URLSearchParams(fields).toString(),cache:'no-store',referrerPolicy:'strict-origin-when-cross-origin'});
+  }catch(err){log(label+': no readable response — '+safe(err?.message||String(err)));
+   return {ok:false,kind:'network',http:null};}
+  let data;
+  try{data=await response.json()}catch(err){
+   log(label+': HTTP '+response.status+' but response was not JSON (likely redirect or gateway).');
+   return {ok:false,kind:'non-json',http:response.status};
+  }
+  if(data?.error){
+   log(label+': HTTP '+response.status+'; ArcGIS error '+String(data.error.code||'unknown')+' — '+safe(data.error.message||'request rejected'));
+   return {ok:false,kind:'arcgis',code:data.error.code,http:response.status};
+  }
+  log(label+': readable HTTP '+response.status+'; valid ArcGIS JSON response.');
+  return {ok:response.ok,kind:'json',http:response.status,data};
+ }
+ function registerHostingToken(token,expires){
+  const host=allowedCityEndpoints().serverBase+'/rest/services';
+  identityManager.registerToken({server:host,token,expires:Number(expires)||Date.now()+10*60*1000,ssl:true});
+  log('A hosting token was registered in the ArcGIS identity manager (value hidden).');
+ }
+ async function testOAuthBridge(){
+  if(busy)return;
+  setBusy(true);
+  let layerReady=false;
+  try{
+   const {p,u,serverBase}=allowedCityEndpoints();
+   bridgeState('Checking City Portal session and hosting-server authorization…','working');
+   const cred=await verifyPortal();
+   if(!cred?.token){bridgeState('SSO session was found, but the client SDK did not expose a usable OAuth access token.','error');return;}
+   // Same service endpoint as the successful temporary-token test, using the OAuth token directly.
+   const direct=await arcgisPost('A · OAuth token → hosted layer',u,{f:'json',token:cred.token});
+   if(direct.ok && direct.data?.geometryType){
+    registerHostingToken(cred.token,cred.expires);
+    bridgeState('OAuth token directly authorizes the hosted layer. Trying ArcGIS map rendering…','success');
+    layerReady=true;
+   }else{
+    // For federated ArcGIS Servers, Portal can generate a server-scoped token.
+    const exchange=await arcgisPost('B · Portal token → hosting-server token',p+'/sharing/rest/generateToken',
+     {f:'json',token:cred.token,serverUrl:serverBase});
+    if(exchange.ok && exchange.data?.token){
+     const serverToken=exchange.data.token;
+     registerHostingToken(serverToken,exchange.data.expires);
+     bridgeState('Portal returned a hosting-server token. Trying ArcGIS map rendering…','success');
+     layerReady=true;
+    }else{
+     let msg='SSO works, but the OAuth token did not authorize the hosted layer.';
+     if(exchange.kind==='network')msg+=' The Portal server-token exchange is not readable from GitHub Pages; this may require a Portal CORS/reverse-proxy change.';
+     else if(exchange.kind==='arcgis')msg+=' Portal rejected the server-token exchange (see ArcGIS error code in diagnostics).';
+     else msg+=' The Portal server-token exchange did not return a usable server token.';
+     bridgeState(msg,'error');
+    }
+   }
+  }catch(err){bridgeState('OAuth-to-hosting test failed: '+errText(err),'error');}
+  finally{setBusy(false);}
+  if(layerReady)await loadLayer('signed-in');
+ }
  async function useToken(){
   if(busy)return;
   try{
@@ -237,6 +314,7 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
  $('secureBtn').addEventListener('click',()=>loadLayer('signed-in'));
  $('loginBtn').addEventListener('click',signIn);
  $('tokenBtn').addEventListener('click',useToken);
+ $('bridgeBtn').addEventListener('click',testOAuthBridge);
  $('diagnoseBtn').addEventListener('click',diagnoseBrowser);
  $('resetBtn').addEventListener('click',reset);
  window.addEventListener('error',e=>{if(e.message)status('Browser script error: '+safe(e.message),'error');});
@@ -249,9 +327,9 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
     registerOAuth();
     map=new Map({basemap:null});
     view=new MapView({container:'viewDiv',map,center:[-123.12,49.26],zoom:11,background:{color:[239,242,243,1]},ui:{components:['zoom','attribution']}});
-    view.when(()=>log('Map initialized. Use Sign in with City Portal, then Load secured layer.')).catch(e=>status('Map initialization failed: '+errText(e),'error'));
+    view.when(()=>log('Map initialized. Use City Portal sign-in, then the OAuth-to-hosting test.')).catch(e=>status('Map initialization failed: '+errText(e),'error'));
     log('ArcGIS SDK loaded. Service address: '+SERVICE);
-    status('Ready. To use the secured layer, click 1 · Sign in with City Portal.','info');
+    status('Ready. To use the secured layer, click 1 · Sign in with City Portal, then 2 · Test OAuth → hosting token.','info');
     verifyPortal().then(()=>log('Existing Portal session restored; ready to load secured layer.'))
      .catch(()=>loginState('Portal session not yet verified. Click Sign in with City Portal.','info'));
    }catch(e){status('Startup failure: '+errText(e),'error');}
