@@ -1,43 +1,31 @@
-# VanMap Portal feature-layer access test
+# VanMap Portal OAuth + Feature Layer Test v2
 
-A tiny static GitHub Pages proof of concept for the ArcGIS Enterprise FeatureServer layer:
+This is a **single-file static test** for GitHub Pages. It accesses the ArcGIS Enterprise hosted feature layer only after the user authenticates. The map and diagnostic panel are intentionally compact.
 
-`https://geo.vancouver.ca/hosting/rest/services/Hosted/Sites_over_5_acres/FeatureServer/0`
+## Deploy
 
-## Publish in minutes
+1. Upload `index.html` to the **root** of the `PortalWebPageTest` GitHub Pages repository.
+2. In your Portal application item, make sure `https://bhudson1.github.io/PortalWebPageTest/` is in **Redirect URLs** (same spelling, case and trailing slash as the deployed page). If you access `index.html` explicitly, add `https://bhudson1.github.io/PortalWebPageTest/index.html` as an additional allowed redirect.
+3. Visit `https://bhudson1.github.io/PortalWebPageTest/` and hard-refresh.
+4. Click **1 · Sign in with City Portal**. Complete City SSO if prompted, returning to the test page. If a redirect reloads the app, continue with step 5.
+5. Click **2 · Load secured layer**. The diagnostics will separately confirm Portal sign-in, Portal REST availability, hosted layer metadata, query feature count, and map layer rendering.
 
-1. Create a GitHub repository (or a dedicated folder in an existing Pages repo).
-2. Upload **only `index.html`**. No GIS data or credentials are included.
-3. In repository **Settings → Pages**, publish the `main` branch (root folder, or `/docs` if you put the file there).
-4. Open the new GitHub Pages URL **from your City-network/VPN browser** and click **Test layer access**.
-5. If the layer requires authentication, use one of the paths below.
+## What is preconfigured
 
-## For proper staff sign-in (recommended)
+- Portal: `https://geo.vancouver.ca/portal/`
+- Public OAuth Client ID: `clgZdX7HR1BywYdB`
+- Feature layer: `https://geo.vancouver.ca/hosting/rest/services/Hosted/Sites_over_5_acres/FeatureServer/0`
 
-1. Find the ArcGIS **Portal** URL (it may differ from `geo.vancouver.ca/hosting`).
-2. Register an application in the Portal and configure its OAuth redirect URI to **the exact GitHub Pages page URL**.
-3. Enter the Portal URL and the application's **Client ID** into the page (never use a client secret in a static website).
-4. Click **Sign in with Portal**; once authenticated, the page attempts to load the secured layer.
-5. Share the hosted feature layer with the Portal group or organization whose members should have access.
+These URLs and the Client ID are *public configuration*, not secrets. No access token or client secret is included in any file.
 
-Depending on the organization's CORS, local-network-access and authentication settings, an admin may still need to approve the Pages origin. The test distinguishes authentication failure from other failures as far as the browser exposes details.
+## Diagnostics
 
-## For an isolated test without registering an OAuth app
+- **Portal session not yet verified**: you have not signed in with this GitHub application or the sign-in has not returned to the site successfully.
+- **Sign-in error / invalid redirect_uri**: check exact allowed redirect URL in Portal registration.
+- **Portal signed in; hosted service fails 498/499**: likely token-to-server federation or authorization issue, or the Portal account lacks permission for the layer.
+- **REST query succeeds but no polygons render**: investigate drawing, extent, CORS, data geometry, and feature service layer view.
+- **Temporary token works but OAuth fails**: proves basic connectivity, not that the Portal OAuth session was registered for the hosted feature service. Use log to identify whether failure occurs before or after successful sign-in.
 
-Under **Optional: test using a temporary token**, enter a short-lived token only in your browser. This input is not saved by the page or checked into GitHub. Do **not** put a token into the HTML, Git URL, or README. The token expires; this is diagnostic only, not deployment authentication.
+Do not publish temporary tokens in a repository, page URL, screenshot, or logs. The optional test token field exists only for a single browser session.
 
-## Interpretation
-
-- **Success** means the layer metadata loaded. The app attempts to draw the polygon layer and retrieve a feature count.
-- **498 / 499** usually indicates token required/invalid/expired.
-- **403** can indicate a permissions restriction.
-- **CORS** or **network error / failed to fetch** means the GitHub Pages browser may be blocked from contacting Portal; the layer could work on an internal web page instead.
-- If an auth dialog appears unexpectedly, the service may be using a different security mechanism or Portal URL than expected.
-- If GIS data is genuinely internal-only, do not publish it to a public repository. Keep data permissions enforced server-side in Portal.
-
-## Limitations
-
-- The exact service could not be reached from the development environment; it may require City-network access.
-- There is no ArcGIS admin setting bypass. A secured service still requires authorized users.
-- ArcGIS Maps SDK 4.34 is loaded from Esri's CDN; network access to `js.arcgis.com` is needed.
-- The test deliberately uses a plain grey map so it doesn't depend on a licensed basemap service.
+This static test does not require admin privileges once the Portal OAuth application has been registered and the layer is shared with the signed-in account. It has not been tested against the private City Portal directly from this environment.
