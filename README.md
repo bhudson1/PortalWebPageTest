@@ -1,31 +1,27 @@
-# VanMap Portal OAuth + Feature Layer Test v2
+# VanMap Portal browser-network diagnostic (v3)
 
-This is a **single-file static test** for GitHub Pages. It accesses the ArcGIS Enterprise hosted feature layer only after the user authenticates. The map and diagnostic panel are intentionally compact.
+This is a one-file, client-side GitHub Pages diagnostic for a City of Vancouver ArcGIS Enterprise Portal and its hosted Sites_over_5_acres layer. It does **not** embed any access tokens, cookies or client secrets. The OAuth Client ID is public client configuration.
 
 ## Deploy
 
-1. Upload `index.html` to the **root** of the `PortalWebPageTest` GitHub Pages repository.
-2. In your Portal application item, make sure `https://bhudson1.github.io/PortalWebPageTest/` is in **Redirect URLs** (same spelling, case and trailing slash as the deployed page). If you access `index.html` explicitly, add `https://bhudson1.github.io/PortalWebPageTest/index.html` as an additional allowed redirect.
-3. Visit `https://bhudson1.github.io/PortalWebPageTest/` and hard-refresh.
-4. Click **1 · Sign in with City Portal**. Complete City SSO if prompted, returning to the test page. If a redirect reloads the app, continue with step 5.
-5. Click **2 · Load secured layer**. The diagnostics will separately confirm Portal sign-in, Portal REST availability, hosted layer metadata, query feature count, and map layer rendering.
+Upload `index.html` to the root of your existing GitHub Pages repository `PortalWebPageTest`, replacing the prior test. Keep the registered OAuth redirect `https://bhudson1.github.io/PortalWebPageTest/`. Force-reload the website after GitHub has published the change.
 
-## What is preconfigured
+## Diagnostic sequence
 
-- Portal: `https://geo.vancouver.ca/portal/`
-- Public OAuth Client ID: `clgZdX7HR1BywYdB`
-- Feature layer: `https://geo.vancouver.ca/hosting/rest/services/Hosted/Sites_over_5_acres/FeatureServer/0`
+1. Use **1 · Sign in with City Portal** to verify OAuth SSO. The app may restore an existing session automatically.
+2. Use **2 · Load secured layer** and read the diagnostics.
+3. If it says **Failed to fetch**, use **3 · Diagnose browser access**. This performs *unauthenticated*, cookie-free browser fetches to (a) Portal REST metadata and (b) hosted layer REST metadata. HTTP 498/499 or an ArcGIS error JSON means the browser could read the response, whereas `Failed to fetch` means there was no readable response.
+4. Open **Portal REST** and **layer REST** links in new tabs. If navigation works but browser fetch fails, check DevTools Console for CORS policy, local-network access, certificate, VPN, or policy errors. New-tab navigation is not subject to the same CORS checks as JavaScript `fetch`.
+5. If staff have a browser site permission for local network access, ensure the GitHub Pages site is allowed. Do not bypass enterprise security controls.
 
-These URLs and the Client ID are *public configuration*, not secrets. No access token or client secret is included in any file.
+The origin to verify in allowed-origin/CORS configuration, **if a CORS restriction is confirmed**, is `https://bhudson1.github.io` (the origin, **not** the `/PortalWebPageTest/` path). ArcGIS Portal and its Hosting Server and any reverse proxy may have distinct CORS rules. Check with the Portal administrator if changes are required.
 
-## Diagnostics
+No need to register a second OAuth application if existing SSO sign-in works.
 
-- **Portal session not yet verified**: you have not signed in with this GitHub application or the sign-in has not returned to the site successfully.
-- **Sign-in error / invalid redirect_uri**: check exact allowed redirect URL in Portal registration.
-- **Portal signed in; hosted service fails 498/499**: likely token-to-server federation or authorization issue, or the Portal account lacks permission for the layer.
-- **REST query succeeds but no polygons render**: investigate drawing, extent, CORS, data geometry, and feature service layer view.
-- **Temporary token works but OAuth fails**: proves basic connectivity, not that the Portal OAuth session was registered for the hosted feature service. Use log to identify whether failure occurs before or after successful sign-in.
+## Security
 
-Do not publish temporary tokens in a repository, page URL, screenshot, or logs. The optional test token field exists only for a single browser session.
+Do not commit any temporary ArcGIS token or client secret to GitHub. The temporary-token input in the page is for one-time local testing only and stores it in page memory. Keep this test page limited to non-sensitive service metadata in a public repository; access to secured layers remains enforced by Portal.
 
-This static test does not require admin privileges once the Portal OAuth application has been registered and the layer is shared with the signed-in account. It has not been tested against the private City Portal directly from this environment.
+## Limitations
+
+A completed no-CORS fetch is opaque and cannot confirm a successful REST response. This diagnostic cannot itself enable CORS, solve VPN restrictions, or verify access from outside the City network. The main GIS app will require working authenticated, browser-readable REST requests to retrieve secured data from GitHub Pages.

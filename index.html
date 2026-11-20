@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="referrer" content="strict-origin-when-cross-origin" />
-<title>VanMap Portal OAuth + Feature Layer Test</title>
+<title>VanMap Portal OAuth + Browser Network Diagnostics v3</title>
 <link rel="stylesheet" href="https://js.arcgis.com/4.34/esri/themes/light/main.css" />
 <style>
 :root { font-family: system-ui, -apple-system, Segoe UI, Arial, sans-serif; color:#172633; background:#edf0f2; }
@@ -22,6 +22,7 @@ input:focus {outline:2px solid #297f91; outline-offset:0}
 button {background:#14596b;border:1px solid #14596b;color:white;font-weight:650;border-radius:7px;padding:10px 13px;cursor:pointer;font-size:13px}
 button:hover:not(:disabled){background:#0c4858}button:disabled{opacity:.5;cursor:wait}
 button.secondary {color:#174554;background:white;border-color:#b9c6cd} button.secondary:hover:not(:disabled){background:#edf4f5}
+a.diaglink {font-size:12px;color:#14596b;text-decoration:underline;padding:7px 2px;}
 .buttons {display:flex;gap:8px;flex-wrap:wrap}
 hr{border:0;border-top:1px solid #e1e6e9;margin:20px 0}
 .status{border:1px solid #d1dce2;background:#f8fafb;border-radius:8px;padding:11px 12px;margin:14px 0;font-size:13px;line-height:1.5}
@@ -35,13 +36,13 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
 <script src="https://js.arcgis.com/4.34/"></script>
 </head>
 <body>
-<header><strong>VanMap Portal · Layer Access Test</strong><small>GitHub Pages · OAuth SSO test · no access tokens in source</small></header>
+<header><strong>VanMap Portal · Layer Access Test</strong><small>GitHub Pages · SSO + browser network diagnostics v3 · no access tokens in source</small></header>
 <main>
 <aside>
  <h2>Sites over 5 acres</h2>
  <p>Tests whether this browser can load a departmental ArcGIS Enterprise feature layer directly from <code>geo.vancouver.ca</code>, then draws the results on the map.</p>
  <div class="field"><label for="layerUrl">Feature layer URL</label><input id="layerUrl" spellcheck="false" value="https://geo.vancouver.ca/hosting/rest/services/Hosted/Sites_over_5_acres/FeatureServer/0" /></div>
- <div class="buttons"><button id="loadBtn" class="secondary" type="button">Test layer (anonymous)</button><button id="resetBtn" class="secondary" type="button">Reset map</button></div>
+ <div class="buttons"><button id="loadBtn" class="secondary" type="button">Test layer (ArcGIS SDK)</button><button id="resetBtn" class="secondary" type="button">Reset map</button></div>
  <div class="status" id="status" role="status" aria-live="polite">SDK initializing. For a secured service, select <strong>Sign in and load layer</strong> below.</div>
  <div id="meta"></div>
  <hr />
@@ -53,6 +54,16 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
  <div id="loginStatus" class="status" data-kind="info" aria-live="polite">Portal session: not yet verified.</div>
  <small class="note">Registered redirect should include <code>https://bhudson1.github.io/PortalWebPageTest/</code> with the trailing slash. If you visit an <code>index.html</code> URL, register that exact URL as well. The sign-in may reload the page; then click <b>Load secured layer</b>.</small>
  <small class="note">This OAuth flow requires a valid Portal URL, a registered public-client application and a matching redirect URI. The service host and Portal host may be different.</small>
+ <hr />
+ <h2>Browser connection tests</h2>
+ <p>These tests use the browser's native network requests <strong>without tokens or cookies</strong>. They distinguish readable REST errors from requests the browser cannot read. They do not change Portal permissions.</p>
+ <div class="buttons"><button id="diagnoseBtn" type="button">3 · Diagnose browser access</button></div>
+ <div id="networkStatus" class="status">Not tested. Use this if Portal SSO succeeds but both Portal REST and Hosting REST fail to fetch.</div>
+ <div class="buttons">
+  <a class="diaglink" href="https://geo.vancouver.ca/portal/sharing/rest/portals/self?f=pjson" target="_blank" rel="noopener noreferrer">Open Portal REST directly</a>
+  <a class="diaglink" href="https://geo.vancouver.ca/hosting/rest/services/Hosted/Sites_over_5_acres/FeatureServer/0?f=pjson" target="_blank" rel="noopener noreferrer">Open layer REST directly</a>
+ </div>
+ <small class="note">A URL opening in a new tab but failing inside this page suggests cross-origin or local-network-access restrictions. In Chrome/Edge, press F12, select Console, and look for the exact CORS / local-network / certificate message.</small>
  <details class="details"><summary>Optional: test using a temporary token</summary>
   <p>For troubleshooting only. Paste a short-lived ArcGIS token into this browser session. It is not written to files, local storage, logs or URLs by this page. Do not commit it to GitHub.</p>
   <div class="field"><label for="token">Temporary token</label><input id="token" type="password" autocomplete="off" placeholder="Paste token here only while testing" /></div>
@@ -71,7 +82,7 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
  const SERVICE='https://geo.vancouver.ca/hosting/rest/services/Hosted/Sites_over_5_acres/FeatureServer/0';
  const DEFAULT_PORTAL='https://geo.vancouver.ca/portal';
  const $=id=>document.getElementById(id);
- const els={status:$('status'),events:$('events'),load:$('loadBtn'),secure:$('secureBtn'),reset:$('resetBtn'),login:$('loginBtn'),token:$('tokenBtn'),meta:$('meta'),loginStatus:$('loginStatus')};
+ const els={status:$('status'),events:$('events'),load:$('loadBtn'),secure:$('secureBtn'),reset:$('resetBtn'),login:$('loginBtn'),token:$('tokenBtn'),diagnose:$('diagnoseBtn'),networkStatus:$('networkStatus'),meta:$('meta'),loginStatus:$('loginStatus')};
  let Map, MapView, FeatureLayer, OAuthInfo, identityManager, esriConfig, esriRequest;
  let map, view, liveLayer, busy=false, oauthRegistered=false, portalSignedIn=false, currentPortal='';
  function safe(v){
@@ -164,6 +175,52 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
   }catch(e){status('Could not load secured layer: '+errText(e),'error');log('Hint: 498/499 usually means missing/invalid authorization; a CORS error suggests the server/network blocks cross-origin browser requests.');}
   finally{setBusy(false);}
  }
+ async function diagnoseBrowser(){
+  if(busy)return;
+  els.diagnose.disabled=true;
+  const results=[];
+  const portalREST=portal()+'/sharing/rest/portals/self?f=json';
+  const layerREST=service()+'?f=json';
+  const test=async (name,url)=>{
+    log(name+': native fetch with CORS, no token and no cookies…');
+    try {
+      const response=await fetch(url,{method:'GET',mode:'cors',credentials:'omit',redirect:'follow',cache:'no-store'});
+      let apiError='';
+      const kind=response.headers.get('content-type')||'';
+      if(kind.includes('json')){
+        try { const data=await response.json();if(data?.error)apiError='; ArcGIS REST error '+data.error.code+' '+safe(data.error.message||''); }
+        catch(e){apiError='; JSON parse failed';}
+      }
+      const line=name+': readable HTTP '+response.status+' '+response.statusText+apiError;
+      log(line);
+      results.push({name,ok:true,message:line});
+    }catch(e){
+      const line=name+': no readable response — '+safe(e?.message||String(e));
+      log(line);
+      results.push({name,ok:false,message:line});
+      try{
+        const opaque=await fetch(url,{method:'GET',mode:'no-cors',credentials:'omit',redirect:'follow',cache:'no-store'});
+        log(name+': no-CORS probe completed ('+opaque.type+'). This does not prove the REST service returned valid data; the browser cannot inspect its response.');
+      }catch(probeError){log(name+': no-CORS probe also failed — '+safe(probeError?.message||String(probeError)));}
+    }
+  };
+  els.networkStatus.dataset.kind='working';
+  els.networkStatus.textContent='Testing from '+location.origin+' (no credentials sent)…';
+  try {
+    log('Page origin is '+location.origin+'; cross-origin service is '+new URL(layerREST).origin+'.');
+    await test('Portal REST',portalREST);
+    await test('Hosted layer REST',layerREST);
+    const blocked=results.filter(r=>!r.ok).length;
+    if(blocked){
+      els.networkStatus.dataset.kind='error';
+      els.networkStatus.textContent=blocked+' of 2 REST endpoints returned no readable browser response. Open the direct links above and check the browser Console for CORS, local-network access, DNS, TLS or VPN messages. A token cannot repair a browser-blocked request.';
+    }else{
+      els.networkStatus.dataset.kind='success';
+      els.networkStatus.textContent='Both REST endpoints returned readable responses to native fetch. Look for HTTP 498/499 or a REST error in the diagnostics; next, retry Load secured layer after City SSO.';
+    }
+  }catch(e){els.networkStatus.dataset.kind='error';els.networkStatus.textContent='Browser diagnostic failed: '+errText(e);log('Browser diagnostic failure: '+errText(e));}
+  finally{els.diagnose.disabled=false;}
+ }
  async function useToken(){
   if(busy)return;
   try{
@@ -180,6 +237,7 @@ small.note {display:block;color:#637583;font-size:11px;margin-top:7px;line-heigh
  $('secureBtn').addEventListener('click',()=>loadLayer('signed-in'));
  $('loginBtn').addEventListener('click',signIn);
  $('tokenBtn').addEventListener('click',useToken);
+ $('diagnoseBtn').addEventListener('click',diagnoseBrowser);
  $('resetBtn').addEventListener('click',reset);
  window.addEventListener('error',e=>{if(e.message)status('Browser script error: '+safe(e.message),'error');});
  window.addEventListener('unhandledrejection',e=>{status('Unexpected browser error: '+errText(e.reason),'error');});
